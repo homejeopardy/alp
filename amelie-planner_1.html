@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Amelie's Weekly Planner</title>
+<style id="pageRule">@page { size: letter landscape; margin: 0.4in; }</style>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    margin: 0; padding: 24px; color: #111; background: #fff;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; }
+  h1 { font-size: 19px; font-weight: 600; margin: 0 0 16px; }
+
+  .controls {
+    display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-end;
+    padding: 14px 16px; background: #f5f4f0; border-radius: 8px; margin-bottom: 18px;
+  }
+  .ctl { display: flex; flex-direction: column; gap: 5px; }
+  .ctl label { font-size: 11px; color: #555; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  select, input[type=text] {
+    font: inherit; font-size: 14px; padding: 7px 10px; border: 1px solid #bbb;
+    border-radius: 6px; background: #fff; min-width: 128px;
+  }
+  #week { font-weight: 600; border: 1px solid #333; }
+  button {
+    font: inherit; font-size: 14px; padding: 8px 16px; border: 1px solid #333;
+    border-radius: 6px; background: #fff; cursor: pointer;
+  }
+  button:hover { background: #eee; }
+  button.small { font-size: 12px; padding: 4px 10px; }
+  button.primary { background: #333; color: #fff; }
+  button.primary:hover { background: #000; }
+  .spacer { flex: 1; }
+  .sync { font-size: 11px; color: #888; align-self: center; }
+  .sync.err { color: #b33; }
+
+  .title-line { font-size: 14px; font-weight: 600; margin: 0 0 10px; }
+
+  /* ---------- urgency matrix ---------- */
+  .matrix {
+    display: grid; grid-template-columns: 92px 1fr 1fr; gap: 6px;
+    margin: 0 0 18px;
+  }
+  .mhead, .mside {
+    font-size: 11px; color: #555; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .04em; display: flex; align-items: center; justify-content: center;
+    text-align: center;
+  }
+  .mcell {
+    border: 1px solid #b8b8b8; border-radius: 6px; padding: 8px 10px;
+    min-height: 84px; background: #fff;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .mcell.q-iu { background: #fce9ea; border-color: #d0666e; }
+  .mcell.q-nu { background: #fdf2df; border-color: #d9a03a; }
+  .mcell.q-in { background: #e3eefb; border-color: #4a86d0; }
+  .mcell.q-nn { background: #f2f2f0; border-color: #a8a8a2; }
+  .task { display: flex; align-items: baseline; gap: 6px; font-size: 13px; padding: 2px 0; }
+  .task input[type=checkbox] { margin: 0; position: relative; top: 1px; }
+  .task.done .txt { text-decoration: line-through; color: #999; }
+  .task .txt { flex: 1; }
+  .task .del {
+    border: none; background: none; color: #999; cursor: pointer; padding: 0 3px; font-size: 13px;
+  }
+  .task .del:hover { color: #b33; background: none; }
+  .addtask { display: flex; gap: 5px; margin-top: 6px; }
+  .addtask input {
+    flex: 1; font-size: 12.5px; padding: 4px 8px; min-width: 0; border: 1px solid #ccc; border-radius: 5px;
+  }
+  .addtask button { font-size: 12px; padding: 3px 10px; }
+
+  /* ---------- week grid, spreadsheet-style: stacked cells, tasks inside ---------- */
+  .board { display: flex; gap: 6px; align-items: flex-start; }
+  .col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+  .colhead {
+    font-size: 13px; font-weight: 600; text-align: center;
+    padding: 4px 0 5px; border-bottom: 1px solid #888;
+  }
+  .cell {
+    border: 1px solid #b8b8b8; border-radius: 3px; padding: 3px 6px 4px;
+    background: #fff; border-left-width: 3px; position: relative;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .cell .ct { font-size: 9px; color: #777; line-height: 1.25; }
+  .cell .cn { font-size: 12.5px; font-weight: 600; line-height: 1.2; }
+  .cell .cm { font-size: 9.5px; color: #555; line-height: 1.25; }
+  .cell.brkcell { border-style: dashed; border-left-width: 1px; padding: 1px 6px; background: #fafaf8; }
+  .cell.brkcell .cn { font-size: 9px; font-weight: 400; color: #999; font-style: italic; display: inline; margin-left: 5px; }
+  .cell.brkcell .ct { display: inline; }
+
+  .ctasks { margin-top: 3px; border-top: 0.5px solid rgba(0,0,0,.14); padding-top: 2px; }
+  .ctask { display: flex; align-items: center; gap: 4px; padding: 1.5px 0; font-size: 10.5px; line-height: 1.25; }
+  .ctask select {
+    font-size: 9px; padding: 0 1px; min-width: 0; width: 78px; flex: none;
+    border: 1px solid #ccc; border-radius: 3px; background: #fff;
+  }
+  .ctask .cname { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .ctask .cdue { flex: none; font-size: 9px; color: #777; white-space: nowrap; }
+  .ctask .cdue.over { color: #c0392b; font-weight: 600; }
+  .ctask.s-done .cname { text-decoration: line-through; color: #999; }
+  .ctask.s-done .cdue { color: #bbb; font-weight: 400; }
+  .ctask .del {
+    border: none; background: none; color: #999; cursor: pointer; padding: 0 2px; font-size: 11px;
+  }
+  .ctask .del:hover { color: #b33; background: none; }
+  .ctask .stxt { display: none; font-size: 9px; color: #666; flex: none; }
+
+  .addbtn {
+    position: absolute; top: 2px; right: 3px; border: none; background: none;
+    color: #bbb; font-size: 13px; line-height: 1; padding: 1px 4px; cursor: pointer;
+  }
+  .cell:hover .addbtn { color: #555; }
+  .addbtn:hover { background: none; color: #000; }
+  .caddrow { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; align-items: center; }
+  .caddrow input[type=text] {
+    flex: 1 1 100%; font-size: 10.5px; padding: 2px 5px; min-width: 0;
+    border: 1px solid #ccc; border-radius: 3px;
+  }
+  .caddrow input[type=date] {
+    font: inherit; font-size: 9.5px; padding: 1px 3px; border: 1px solid #ccc; border-radius: 3px; flex: 1;
+  }
+  .caddrow select { font-size: 9px; padding: 1px 2px; border: 1px solid #ccc; border-radius: 3px; flex: none; }
+  .caddrow button { font-size: 10px; padding: 1px 7px; }
+
+  /* ---------- editor ---------- */
+  .editor {
+    margin: 0 0 18px; padding: 14px 16px; background: #f0f3f7;
+    border: 1px solid #cdd6e0; border-radius: 8px; font-size: 13px;
+  }
+  .editor h3 {
+    font-size: 11px; color: #456; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .04em; margin: 0 0 6px;
+  }
+  .edrow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 4px 0; }
+  .editor input[type=text], .editor select { font-size: 13px; padding: 5px 8px; min-width: 0; }
+  .evtable { width: 100%; border-collapse: collapse; margin: 4px 0 8px; background: #fff; }
+  .evtable td, .evtable th { border: 1px solid #dfe5ec; padding: 4px 8px; font-size: 12.5px; text-align: left; }
+  .evtable th { background: #e8edf3; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: #456; }
+  .evtable .dim { color: #888; }
+  .evform { margin-top: 8px; padding: 12px; background: #fff; border: 1px solid #cdd6e0; border-radius: 6px; }
+  .evform .daychecks { display: flex; gap: 10px; flex-wrap: wrap; font-size: 13px; }
+  .muted { color: #789; font-size: 12px; }
+
+  @media print {
+    body { padding: 0; }
+    .controls { display: none; }
+    .editor { display: none; }
+    h1 { display: none; }
+    .wrap { max-width: none; }
+    .board { page-break-inside: avoid; }
+    .matrix { page-break-inside: avoid; }
+    .task .del { display: none; }
+    .addtask { display: none; }
+    .caddrow { display: none; }
+    .addbtn { display: none; }
+    .ctask .del { display: none; }
+    .ctask select { display: none; }
+    .ctask .stxt { display: inline; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Amelie's weekly planner</h1>
+
+  <div class="controls">
+    <div class="ctl">
+      <label for="week">Week</label>
+      <select id="week"></select>
+    </div>
+    <div class="ctl">
+      <label>&nbsp;</label>
+      <div style="display:flex;gap:6px;">
+        <button id="newWeek" type="button">New week</button>
+        <button id="renameWeek" type="button">Rename</button>
+        <button id="deleteWeek" type="button">Delete</button>
+      </div>
+    </div>
+    <div class="ctl">
+      <label>&nbsp;</label>
+      <button id="editBtn" type="button">Edit schedule</button>
+    </div>
+    <div class="spacer"></div>
+    <span class="sync" id="sync"></span>
+    <button id="print" type="button">Print</button>
+  </div>
+
+  <div class="editor" id="editor" style="display:none;"></div>
+
+  <div class="title-line" id="titleLine"></div>
+
+  <div class="matrix" id="matrix"></div>
+
+  <div id="grid"></div>
+
+</div>
+
+<script>
+/* Amelie: 8th grade, splits C1 + C2, advisor Mr. Cohen (M1) — resolved from the school schedule. */
+var BASE_EVENTS = [{"day":"Mon","s":500,"e":530,"kind":"event","t":"Advisory","who":"Mr. Cohen","where":"M1"},{"day":"Mon","s":533,"e":583,"kind":"event","t":"Wheel","who":"Mr. Cohen","where":"Q1"},{"day":"Mon","s":586,"e":636,"kind":"event","t":"Mandarin","who":"Ms. Xu","where":"S101"},{"day":"Mon","s":636,"e":654,"kind":"break","t":"Break","who":"","where":""},{"day":"Mon","s":657,"e":707,"kind":"event","t":"History","who":"Ms. Mitchell","where":"A202"},{"day":"Mon","s":710,"e":760,"kind":"event","t":"Art","who":"Ms. Jimenez","where":"F104"},{"day":"Mon","s":760,"e":804,"kind":"break","t":"Lunch","who":"","where":""},{"day":"Mon","s":807,"e":857,"kind":"event","t":"Science","who":"Mr. Cohen","where":"Q2"},{"day":"Mon","s":860,"e":910,"kind":"event","t":"Math","who":"Ms. Seto","where":"A203"},{"day":"Tue","s":500,"e":550,"kind":"event","t":"English","who":"Ms. Manhoff","where":"A202"},{"day":"Tue","s":553,"e":603,"kind":"event","t":"Math","who":"Ms. Seto","where":"A203"},{"day":"Tue","s":603,"e":621,"kind":"break","t":"Break","who":"","where":""},{"day":"Tue","s":624,"e":674,"kind":"event","t":"Science","who":"Mr. Cohen","where":"Q2"},{"day":"Tue","s":677,"e":727,"kind":"event","t":"Mandarin","who":"Ms. Xu","where":"S101"},{"day":"Tue","s":727,"e":767,"kind":"break","t":"Lunch","who":"","where":""},{"day":"Tue","s":770,"e":820,"kind":"event","t":"Music","who":"Mr. Kennedy","where":"M1"},{"day":"Tue","s":823,"e":873,"kind":"event","t":"History","who":"Ms. Mitchell","where":"F101"},{"day":"Tue","s":876,"e":910,"kind":"event","t":"Office hours","who":"","where":""},{"day":"Wed","s":500,"e":530,"kind":"event","t":"Advisory","who":"Mr. Cohen","where":"M1"},{"day":"Wed","s":533,"e":583,"kind":"event","t":"PE","who":"Coach G","where":"Yard"},{"day":"Wed","s":586,"e":636,"kind":"event","t":"History","who":"Ms. Mitchell","where":"A202"},{"day":"Wed","s":636,"e":654,"kind":"break","t":"Break","who":"","where":""},{"day":"Wed","s":657,"e":707,"kind":"event","t":"Music","who":"Mr. Kennedy","where":"M1"},{"day":"Wed","s":710,"e":760,"kind":"event","t":"English","who":"Ms. Manhoff","where":"A202"},{"day":"Wed","s":760,"e":804,"kind":"break","t":"Lunch","who":"","where":""},{"day":"Wed","s":807,"e":857,"kind":"event","t":"Math","who":"Ms. Seto","where":"A203"},{"day":"Wed","s":860,"e":910,"kind":"event","t":"Science","who":"Mr. Cohen","where":"Q2"},{"day":"Thu","s":500,"e":550,"kind":"event","t":"Science","who":"Mr. Cohen","where":"Q2"},{"day":"Thu","s":553,"e":603,"kind":"event","t":"English","who":"Ms. Manhoff","where":"A202"},{"day":"Thu","s":603,"e":621,"kind":"break","t":"Break","who":"","where":""},{"day":"Thu","s":624,"e":674,"kind":"event","t":"Math","who":"Ms. Seto","where":"A203"},{"day":"Thu","s":677,"e":727,"kind":"event","t":"History","who":"Ms. Mitchell","where":"A202"},{"day":"Thu","s":727,"e":767,"kind":"break","t":"Lunch","who":"","where":""},{"day":"Thu","s":770,"e":820,"kind":"event","t":"Mandarin","who":"Ms. Xu","where":"S101"},{"day":"Thu","s":823,"e":873,"kind":"event","t":"PE","who":"Coach G","where":"Yard"},{"day":"Thu","s":876,"e":910,"kind":"event","t":"Office hours","who":"","where":""},{"day":"Fri","s":500,"e":530,"kind":"event","t":"Advisory","who":"Mr. Cohen","where":"M1"},{"day":"Fri","s":533,"e":583,"kind":"event","t":"Assembly","who":"","where":"ASG / USG"},{"day":"Fri","s":586,"e":636,"kind":"event","t":"Study hall","who":"Ms. Seto","where":"A203"},{"day":"Fri","s":636,"e":654,"kind":"break","t":"Break","who":"","where":""},{"day":"Fri","s":657,"e":707,"kind":"event","t":"Mandarin","who":"Ms. Xu","where":"S101"},{"day":"Fri","s":710,"e":760,"kind":"event","t":"Drama","who":"Ms. Marziano","where":"F101"},{"day":"Fri","s":760,"e":804,"kind":"break","t":"Lunch","who":"","where":""},{"day":"Fri","s":807,"e":857,"kind":"event","t":"Art","who":"Ms. Jimenez","where":"F104"},{"day":"Fri","s":860,"e":910,"kind":"event","t":"English","who":"Ms. Manhoff","where":"A202"}];
+
+var TITLE = "Amelie  —  8C1 + 8C2  ·  Advisor: Mr. Cohen (M1)";
+var DAYS = ["Mon","Tue","Wed","Thu","Fri"];
+var DAYS7 = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+var FULL = { Mon:"Monday", Tue:"Tuesday", Wed:"Wednesday", Thu:"Thursday", Fri:"Friday", Sat:"Saturday", Sun:"Sunday" };
+var QUADS = [
+  { id:"iu", cls:"q-iu" }, { id:"in", cls:"q-in" },
+  { id:"nu", cls:"q-nu" }, { id:"nn", cls:"q-nn" }
+];
+var PXMIN = 1.6;
+var UID = 1;
+function uid() { return "id" + (UID++) + "_" + Math.random().toString(36).slice(2, 7); }
+
+function clock(m) {
+  var hh = Math.floor(m / 60), mm = m % 60;
+  if (hh > 12) hh -= 12;
+  return hh + ":" + (mm < 10 ? "0" + mm : mm);
+}
+function fmtRange(s, e) { return clock(s) + "-" + clock(e); }
+function esc(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+function parseTime(str) {
+  var m = /^(\d{1,2}):(\d{2})\s*(am|pm|AM|PM)?$/.exec(String(str).replace(/^\s+|\s+$/g, ""));
+  if (!m) throw 'Bad time "' + str + '" — use H:MM, 24-hour HH:MM, or H:MM am/pm.';
+  var hh = parseInt(m[1], 10), mm = parseInt(m[2], 10), sfx = (m[3] || "").toLowerCase();
+  if (mm > 59 || hh > 23) throw 'Bad time "' + str + '".';
+  if (sfx === "pm" && hh < 12) hh += 12;
+  else if (sfx === "am" && hh === 12) hh = 0;
+  else if (!sfx && hh < 8) hh += 12;
+  return hh * 60 + mm;
+}
+function deepCopy(o) { return JSON.parse(JSON.stringify(o)); }
+
+/* ================= colors ================= */
+
+var DEFAULT_COLORS = {
+  "Math":"#4a86d0", "Science":"#4aa568", "English":"#8a6cc7", "History":"#d9a03a",
+  "Spanish":"#d0666e", "Mandarin":"#d0666e",
+  "Music":"#3aa39b", "Art":"#cc66a2", "Drama":"#d97a3c", "PE":"#8fae3a",
+  "Wheel":"#7a93ad", "Advisory":"#6a7cd9",
+  "Study hall":"#a8a8a2", "Study skills":"#a8a8a2",
+  "Office hours":"#a8a8a2", "Assembly":"#a8a8a2"
+};
+var PALETTE = ["#4a86d0","#4aa568","#8a6cc7","#d9a03a","#d0666e","#3aa39b","#cc66a2","#d97a3c","#8fae3a","#6a7cd9","#7a93ad","#b0893a"];
+function hashStr(s) {
+  var h = 0;
+  for (var i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function colorFor(t) {
+  if (!t) return null;
+  return DEFAULT_COLORS[t] || PALETTE[hashStr(t) % PALETTE.length];
+}
+function tint(hex) {
+  var r = parseInt(hex.substr(1,2),16), g = parseInt(hex.substr(3,2),16), b = parseInt(hex.substr(5,2),16);
+  var f = 0.86;
+  r = Math.round(r + (255 - r) * f); g = Math.round(g + (255 - g) * f); b = Math.round(b + (255 - b) * f);
+  return "rgb(" + r + "," + g + "," + b + ")";
+}
+function colorStyle(t) {
+  var c = colorFor(t);
+  return c ? "background:" + tint(c) + ";border-left-color:" + c + ";" : "";
+}
+
+/* ================= storage (syncs across devices when run inside Claude) ================= */
+
+var STORE_KEY = "amelie-planner-v1";
+var hasCloud = typeof window.storage !== "undefined" && window.storage && window.storage.get;
+
+function setSync(msg, err) {
+  var el = document.getElementById("sync");
+  el.textContent = msg;
+  el.className = "sync" + (err ? " err" : "");
+}
+
+async function loadState() {
+  if (hasCloud) {
+    try {
+      var res = await window.storage.get(STORE_KEY);
+      if (res && res.value) return JSON.parse(res.value);
+    } catch (e) { /* key missing on first run — fine */ }
+    return null;
+  }
+  try {
+    var raw = localStorage.getItem(STORE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e2) { return null; }
+}
+
+var saveTimer = null;
+function saveState() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(function () {
+    if (hasCloud) {
+      setSync("Saving…");
+      window.storage.set(STORE_KEY, JSON.stringify(STATE))
+        .then(function (r) { setSync(r ? "Saved — syncs across devices" : "Couldn't save", !r); })
+        .catch(function () { setSync("Couldn't save — changes are local only", true); });
+    } else {
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(STATE)); setSync("Saved on this device only"); }
+      catch (e) { setSync("Couldn't save", true); }
+    }
+  }, 400);
+}
+
+/* ================= state ================= */
+/* STATE = { weeks: [ { id, label, events:[{id,day,s,e,kind,t,who,where}], tasks:[{id,q,text,done}],
+                       ctasks:[{id, evId, name, due:"yyyy-mm-dd"|"", status:"ns"|"ip"|"done"}] } ],
+             current }
+   weeks[0] is "Regular week": the template that new weeks start from.
+   ctasks live inside a specific class box (event) of a specific week — like typing under a cell in the sheet. */
+
+var STATE = null;
+var STATUSES = [["ns","Not started"], ["ip","In progress"], ["done","Completed"]];
+function statusLabel(s) {
+  for (var i = 0; i < STATUSES.length; i++) if (STATUSES[i][0] === s) return STATUSES[i][1];
+  return s;
+}
+
+function freshState() {
+  var evs = [];
+  for (var i = 0; i < BASE_EVENTS.length; i++) {
+    var e = BASE_EVENTS[i];
+    evs.push({ id: uid(), day: e.day, s: e.s, e: e.e, kind: e.kind, t: e.t, who: e.who, where: e.where });
+  }
+  var tmpl = { id: uid(), label: "Regular week", events: evs, tasks: [], ctasks: [] };
+  return { weeks: [tmpl], current: tmpl.id };
+}
+
+function currentWeek() {
+  for (var i = 0; i < STATE.weeks.length; i++) if (STATE.weeks[i].id === STATE.current) return STATE.weeks[i];
+  STATE.current = STATE.weeks[0].id;
+  return STATE.weeks[0];
+}
+function isTemplate(w) { return STATE.weeks[0].id === w.id; }
+
+/* ================= rendering ================= */
+
+function fillWeekSelect() {
+  var s = document.getElementById("week"), h = "";
+  for (var i = 0; i < STATE.weeks.length; i++) {
+    h += '<option value="' + STATE.weeks[i].id + '">' + esc(STATE.weeks[i].label) + "</option>";
+  }
+  s.innerHTML = h;
+  s.value = STATE.current;
+}
+
+function eventsOn(w, day) {
+  var out = [];
+  for (var i = 0; i < w.events.length; i++) if (w.events[i].day === day) out.push(w.events[i]);
+  out.sort(function (a, b) { return a.s - b.s; });
+  return out;
+}
+function shownDays(w) {
+  var used = {};
+  for (var i = 0; i < w.events.length; i++) used[w.events[i].day] = 1;
+  var out = ["Mon","Tue","Wed","Thu","Fri"];
+  if (used.Sat) out.push("Sat");
+  if (used.Sun) out.push("Sun");
+  return out;
+}
+
+var openAdd = null; // event id whose add-a-task row is open
+
+function fmtDue(d) {
+  if (!d) return "";
+  var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d);
+  if (!m) return d;
+  var MN = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return MN[parseInt(m[2], 10) - 1] + " " + parseInt(m[3], 10);
+}
+function todayStr() {
+  var d = new Date();
+  var mm = d.getMonth() + 1, dd = d.getDate();
+  return d.getFullYear() + "-" + (mm < 10 ? "0" + mm : mm) + "-" + (dd < 10 ? "0" + dd : dd);
+}
+function tasksFor(w, evId) {
+  var out = [];
+  for (var i = 0; i < w.ctasks.length; i++) if (w.ctasks[i].evId === evId) out.push(w.ctasks[i]);
+  out.sort(function (a, b) {
+    var da = a.due || "9999", db = b.due || "9999";
+    return da < db ? -1 : da > db ? 1 : 0;
+  });
+  return out;
+}
+function findCTask(w, id) {
+  for (var i = 0; i < w.ctasks.length; i++) if (w.ctasks[i].id === id) return w.ctasks[i];
+  return null;
+}
+
+function renderGrid() {
+  var w = currentWeek();
+  document.getElementById("titleLine").textContent =
+    TITLE + "  ·  " + w.label + (isTemplate(w) ? "  (template for new weeks)" : "");
+
+  var days = shownDays(w), today = todayStr();
+  var h = '<div class="board">';
+  for (var d = 0; d < days.length; d++) {
+    var day = days[d];
+    h += '<div class="col"><div class="colhead">' + day + "</div>";
+    var evs = eventsOn(w, day);
+    for (var j = 0; j < evs.length; j++) {
+      var ev = evs[j];
+      if (ev.kind === "break") {
+        h += '<div class="cell brkcell"><span class="ct">' + fmtRange(ev.s, ev.e) + '</span><span class="cn">'
+           + esc(ev.t) + "</span></div>";
+        continue;
+      }
+      var meta = (ev.who ? ev.who : "") + (ev.who && ev.where ? " · " : "") + (ev.where ? ev.where : "");
+      var tasks = tasksFor(w, ev.id);
+      h += '<div class="cell" style="' + colorStyle(ev.t) + '">'
+         + '<button class="addbtn" data-add="' + ev.id + '" type="button" title="Add task">+</button>'
+         + '<div class="ct">' + fmtRange(ev.s, ev.e) + "</div>"
+         + '<div class="cn">' + esc(ev.t) + "</div>"
+         + (meta ? '<div class="cm">' + esc(meta) + "</div>" : "");
+      if (tasks.length) {
+        h += '<div class="ctasks">';
+        for (var k = 0; k < tasks.length; k++) {
+          var t = tasks[k];
+          var over = t.due && t.due < today && t.status !== "done";
+          h += '<div class="ctask s-' + t.status + '"><select data-cst="' + t.id + '">';
+          for (var s = 0; s < STATUSES.length; s++) {
+            h += '<option value="' + STATUSES[s][0] + '"' + (t.status === STATUSES[s][0] ? " selected" : "") + ">"
+               + STATUSES[s][1] + "</option>";
+          }
+          h += "</select>"
+             + '<span class="stxt">' + statusLabel(t.status) + "</span>"
+             + '<span class="cname">' + esc(t.name) + "</span>"
+             + (t.due ? '<span class="cdue' + (over ? " over" : "") + '">' + fmtDue(t.due) + "</span>" : "")
+             + '<button class="del" data-cdel="' + t.id + '" type="button" title="Delete">&times;</button>'
+             + "</div>";
+        }
+        h += "</div>";
+      }
+      if (openAdd === ev.id) {
+        h += '<div class="caddrow">'
+           + '<input type="text" placeholder="Task" data-cname="' + ev.id + '">'
+           + '<input type="date" data-cdate="' + ev.id + '">'
+           + '<select data-cstat="' + ev.id + '">';
+        for (var s2 = 0; s2 < STATUSES.length; s2++) {
+          h += '<option value="' + STATUSES[s2][0] + '">' + STATUSES[s2][1] + "</option>";
+        }
+        h += "</select>"
+           + '<button type="button" data-caddbtn="' + ev.id + '">Add</button>'
+           + "</div>";
+      }
+      h += "</div>";
+    }
+    h += "</div>";
+  }
+  h += "</div>";
+  var box = document.getElementById("grid");
+  box.innerHTML = h;
+  wireGridTasks(box, w);
+  if (openAdd) {
+    var f = box.querySelector('[data-cname="' + openAdd + '"]');
+    if (f) f.focus();
+  }
+}
+
+function wireGridTasks(box, w) {
+  var addBtns = box.querySelectorAll("[data-add]");
+  for (var i = 0; i < addBtns.length; i++) {
+    addBtns[i].addEventListener("click", function () {
+      var id = this.getAttribute("data-add");
+      openAdd = openAdd === id ? null : id;
+      renderGrid();
+    });
+  }
+  var sels = box.querySelectorAll("[data-cst]");
+  for (var i2 = 0; i2 < sels.length; i2++) {
+    sels[i2].addEventListener("change", function () {
+      var t = findCTask(w, this.getAttribute("data-cst"));
+      if (t) { t.status = this.value; saveState(); renderGrid(); }
+    });
+  }
+  var dels = box.querySelectorAll("[data-cdel]");
+  for (var i3 = 0; i3 < dels.length; i3++) {
+    dels[i3].addEventListener("click", function () {
+      var id = this.getAttribute("data-cdel");
+      for (var k = 0; k < w.ctasks.length; k++) if (w.ctasks[k].id === id) { w.ctasks.splice(k, 1); break; }
+      saveState(); renderGrid();
+    });
+  }
+  function commit(evId) {
+    var name = box.querySelector('[data-cname="' + evId + '"]');
+    var date = box.querySelector('[data-cdate="' + evId + '"]');
+    var stat = box.querySelector('[data-cstat="' + evId + '"]');
+    var v = name.value.trim();
+    if (!v) return;
+    w.ctasks.push({ id: uid(), evId: evId, name: v, due: date.value || "", status: stat.value });
+    saveState(); renderGrid();
+  }
+  var names = box.querySelectorAll("[data-cname]");
+  for (var i4 = 0; i4 < names.length; i4++) {
+    names[i4].addEventListener("keydown", function (e) {
+      if (e.key === "Enter") commit(this.getAttribute("data-cname"));
+    });
+  }
+  var commits = box.querySelectorAll("[data-caddbtn]");
+  for (var i5 = 0; i5 < commits.length; i5++) {
+    commits[i5].addEventListener("click", function () { commit(this.getAttribute("data-caddbtn")); });
+  }
+}
+
+function renderMatrix() {
+  var w = currentWeek();
+  var h = '<div class="mhead"></div><div class="mhead">Urgent</div><div class="mhead">Not as urgent</div>';
+  var rows = [["Important", "iu", "in"], ["Not as important", "nu", "nn"]];
+  for (var r = 0; r < rows.length; r++) {
+    h += '<div class="mside">' + rows[r][0] + "</div>";
+    for (var c = 1; c <= 2; c++) {
+      var q = rows[r][c], cls = "";
+      for (var qq = 0; qq < QUADS.length; qq++) if (QUADS[qq].id === q) cls = QUADS[qq].cls;
+      h += '<div class="mcell ' + cls + '" data-q="' + q + '">';
+      for (var i = 0; i < w.tasks.length; i++) {
+        var t = w.tasks[i];
+        if (t.q !== q) continue;
+        h += '<div class="task' + (t.done ? " done" : "") + '">'
+           + '<input type="checkbox" data-tid="' + t.id + '"' + (t.done ? " checked" : "") + ">"
+           + '<span class="txt">' + esc(t.text) + "</span>"
+           + '<button class="del" data-tdel="' + t.id + '" type="button" title="Delete">&times;</button>'
+           + "</div>";
+      }
+      h += '<div class="addtask"><input type="text" placeholder="Add task" data-tadd="' + q + '">'
+         + '<button type="button" data-taddbtn="' + q + '">+</button></div>';
+      h += "</div>";
+    }
+  }
+  var box = document.getElementById("matrix");
+  box.innerHTML = h;
+
+  var cbs = box.querySelectorAll("input[type=checkbox]");
+  for (var i2 = 0; i2 < cbs.length; i2++) {
+    cbs[i2].addEventListener("change", function () {
+      var t = findTask(this.getAttribute("data-tid"));
+      if (t) { t.done = this.checked; saveState(); renderMatrix(); }
+    });
+  }
+  var dels = box.querySelectorAll("[data-tdel]");
+  for (var i3 = 0; i3 < dels.length; i3++) {
+    dels[i3].addEventListener("click", function () {
+      var id = this.getAttribute("data-tdel");
+      var w2 = currentWeek();
+      for (var k = 0; k < w2.tasks.length; k++) if (w2.tasks[k].id === id) { w2.tasks.splice(k, 1); break; }
+      saveState(); renderMatrix();
+    });
+  }
+  function addFrom(q, input) {
+    var v = input.value.trim();
+    if (!v) return;
+    currentWeek().tasks.push({ id: uid(), q: q, text: v, done: false });
+    saveState(); renderMatrix();
+    var again = document.querySelector('[data-tadd="' + q + '"]');
+    if (again) again.focus();
+  }
+  var adds = box.querySelectorAll("[data-tadd]");
+  for (var i4 = 0; i4 < adds.length; i4++) {
+    adds[i4].addEventListener("keydown", function (e) {
+      if (e.key === "Enter") addFrom(this.getAttribute("data-tadd"), this);
+    });
+  }
+  var addBtns = box.querySelectorAll("[data-taddbtn]");
+  for (var i5 = 0; i5 < addBtns.length; i5++) {
+    addBtns[i5].addEventListener("click", function () {
+      addFrom(this.getAttribute("data-taddbtn"),
+              document.querySelector('[data-tadd="' + this.getAttribute("data-taddbtn") + '"]'));
+    });
+  }
+}
+
+function findTask(id) {
+  var w = currentWeek();
+  for (var i = 0; i < w.tasks.length; i++) if (w.tasks[i].id === id) return w.tasks[i];
+  return null;
+}
+
+function renderAll() {
+  fillWeekSelect();
+  renderMatrix();
+  renderGrid();
+  if (editorOpen) renderEditor();
+}
+
+/* ================= editor (events of the current week) ================= */
+
+var editorOpen = false;
+var evForm = null;
+
+function overlaps(w, day, s, e, skipId) {
+  for (var i = 0; i < w.events.length; i++) {
+    var ev = w.events[i];
+    if (ev.day !== day || ev.id === skipId) continue;
+    if (s < ev.e && ev.s < e) return ev;
+  }
+  return null;
+}
+function findEv(w, id) {
+  for (var i = 0; i < w.events.length; i++) if (w.events[i].id === id) return w.events[i];
+  return null;
+}
+
+function renderEditor() {
+  var w = currentWeek(), h = "";
+  h += "<h3>Events — " + esc(w.label) + "</h3>";
+  h += '<div class="muted" style="margin-bottom:6px;">'
+     + (isTemplate(w) ? "This is the template: new weeks start as a copy of it. Existing weeks aren't changed."
+                      : "Changes here affect this week only.")
+     + "</div>";
+  h += '<table class="evtable"><tr><th>Day</th><th>Time</th><th>What</th><th></th><th></th></tr>';
+  var days = shownDays(w);
+  for (var d = 0; d < DAYS7.length; d++) {
+    if (days.indexOf(DAYS7[d]) < 0) continue;
+    var evs = eventsOn(w, DAYS7[d]);
+    for (var j = 0; j < evs.length; j++) {
+      var ev = evs[j];
+      var what = ev.kind === "break" ? '<span class="dim">break: ' + esc(ev.t) + "</span>" : esc(ev.t);
+      h += "<tr><td>" + ev.day + "</td><td>" + fmtRange(ev.s, ev.e) + "</td><td>" + what + "</td>"
+         + '<td><button class="small" data-evedit="' + ev.id + '" type="button">Edit</button></td>'
+         + '<td><button class="small" data-evdel="' + ev.id + '" type="button">Delete</button></td></tr>';
+    }
+  }
+  h += "</table>";
+  h += '<div class="edrow"><button class="small" id="edEvAdd" type="button">Add event</button></div>';
+  if (evForm) h += buildEvForm(w);
+
+  var box = document.getElementById("editor");
+  box.innerHTML = h;
+  wireEditor(box, w);
+}
+
+function buildEvForm(w) {
+  var ed = evForm.mode === "edit" ? findEv(w, evForm.id) : null;
+  var kind = ed ? ed.kind : "event";
+  var h = '<div class="evform"><h3>' + (ed ? "Edit event" : "Add event") + "</h3>";
+  h += '<div class="edrow"><label style="min-width:60px;">Type</label><select id="efKind">'
+     + '<option value="event"' + (kind === "event" ? " selected" : "") + '>Event</option>'
+     + '<option value="break"' + (kind === "break" ? " selected" : "") + '>Break / gap</option>'
+     + "</select></div>";
+  if (ed) {
+    h += '<div class="edrow"><label style="min-width:60px;">Day</label><select id="efDay">';
+    for (var d = 0; d < DAYS7.length; d++) {
+      h += '<option value="' + DAYS7[d] + '"' + (ed.day === DAYS7[d] ? " selected" : "") + ">" + FULL[DAYS7[d]] + "</option>";
+    }
+    h += "</select></div>";
+  } else {
+    h += '<div class="edrow"><label style="min-width:60px;">Days</label><div class="daychecks">';
+    for (var d2 = 0; d2 < DAYS7.length; d2++) {
+      h += '<label><input type="checkbox" data-efday value="' + DAYS7[d2] + '"> ' + DAYS7[d2] + "</label>";
+    }
+    h += "</div></div>";
+  }
+  h += '<div class="edrow"><label style="min-width:60px;">Time</label>'
+     + '<input type="text" id="efStart" placeholder="8:20" style="width:90px;" value="' + (ed ? clock(ed.s) : "") + '">'
+     + '<span>to</span>'
+     + '<input type="text" id="efEnd" placeholder="9:10" style="width:90px;" value="' + (ed ? clock(ed.e) : "") + '"></div>';
+  h += '<div class="edrow"><label style="min-width:60px;">' + (kind === "break" ? "Label" : "Title") + '</label>'
+     + '<input type="text" id="efTitle" value="' + esc(ed ? ed.t : "") + '">'
+     + '<input type="text" id="efWho" placeholder="Person / detail" value="' + esc(ed ? ed.who : "") + '">'
+     + '<input type="text" id="efWhere" placeholder="Location" value="' + esc(ed ? ed.where : "") + '"></div>';
+  h += '<div class="edrow" style="margin-top:8px;">'
+     + '<button id="efSave" class="primary" type="button">' + (ed ? "Save changes" : "Add") + "</button>"
+     + '<button id="efCancel" type="button">Cancel</button></div></div>';
+  return h;
+}
+
+function wireEditor(box, w) {
+  var evEdits = box.querySelectorAll("[data-evedit]");
+  for (var j = 0; j < evEdits.length; j++) {
+    (function (btn) {
+      btn.addEventListener("click", function () {
+        evForm = { mode: "edit", id: btn.getAttribute("data-evedit") };
+        renderEditor();
+      });
+    })(evEdits[j]);
+  }
+  var evDels = box.querySelectorAll("[data-evdel]");
+  for (var j2 = 0; j2 < evDels.length; j2++) {
+    (function (btn) {
+      btn.addEventListener("click", function () {
+        var id = btn.getAttribute("data-evdel");
+        for (var e = 0; e < w.events.length; e++) if (w.events[e].id === id) { w.events.splice(e, 1); break; }
+        for (var k = w.ctasks.length - 1; k >= 0; k--) if (w.ctasks[k].evId === id) w.ctasks.splice(k, 1);
+        if (evForm && evForm.mode === "edit" && evForm.id === id) evForm = null;
+        saveState(); renderAll();
+      });
+    })(evDels[j2]);
+  }
+  var addBtn = box.querySelector("#edEvAdd");
+  if (addBtn) addBtn.addEventListener("click", function () { evForm = { mode: "add" }; renderEditor(); });
+
+  if (!evForm) return;
+  box.querySelector("#efKind").addEventListener("change", function () { renderEditor(); });
+  box.querySelector("#efCancel").addEventListener("click", function () { evForm = null; renderEditor(); });
+  box.querySelector("#efSave").addEventListener("click", function () {
+    try {
+      var kind = box.querySelector("#efKind").value;
+      var s = parseTime(box.querySelector("#efStart").value);
+      var e = parseTime(box.querySelector("#efEnd").value);
+      if (e <= s) throw "End time must be after start time.";
+      var t = box.querySelector("#efTitle").value.trim();
+      if (!t) t = kind === "break" ? "Break" : null;
+      if (!t) throw "The event needs a title.";
+      var who = box.querySelector("#efWho").value.trim();
+      var where = box.querySelector("#efWhere").value.trim();
+
+      var days = [];
+      if (evForm.mode === "edit") days = [box.querySelector("#efDay").value];
+      else {
+        var cbs = box.querySelectorAll("[data-efday]");
+        for (var i = 0; i < cbs.length; i++) if (cbs[i].checked) days.push(cbs[i].value);
+        if (!days.length) throw "Pick at least one day.";
+      }
+      var skipId = evForm.mode === "edit" ? evForm.id : null;
+      for (var d = 0; d < days.length; d++) {
+        var clash = overlaps(w, days[d], s, e, skipId);
+        if (clash) throw days[d] + ": overlaps " + fmtRange(clash.s, clash.e) + " (" + clash.t + ").";
+      }
+      if (evForm.mode === "edit") {
+        var ev = findEv(w, evForm.id);
+        ev.day = days[0]; ev.s = s; ev.e = e; ev.kind = kind; ev.t = t;
+        ev.who = kind === "break" ? "" : who; ev.where = kind === "break" ? "" : where;
+      } else {
+        for (var d2 = 0; d2 < days.length; d2++) {
+          w.events.push({ id: uid(), day: days[d2], s: s, e: e, kind: kind, t: t,
+                          who: kind === "break" ? "" : who, where: kind === "break" ? "" : where });
+        }
+      }
+      evForm = null;
+      saveState(); renderAll();
+    } catch (err) { alert(err); }
+  });
+}
+
+/* ================= wiring ================= */
+
+document.getElementById("week").addEventListener("change", function () {
+  STATE.current = this.value;
+  evForm = null;
+  saveState(); renderAll();
+});
+document.getElementById("newWeek").addEventListener("click", function () {
+  var label = prompt("Name for the new week (e.g. \"Sep 7\u201311\"):", "");
+  if (label === null) return;
+  label = label.trim() || "Week " + STATE.weeks.length;
+  var tmpl = STATE.weeks[0];
+  var wk = { id: uid(), label: label, events: deepCopy(tmpl.events), tasks: [], ctasks: [] };
+  for (var i = 0; i < wk.events.length; i++) wk.events[i].id = uid();
+  STATE.weeks.push(wk);
+  STATE.current = wk.id;
+  evForm = null;
+  saveState(); renderAll();
+});
+document.getElementById("renameWeek").addEventListener("click", function () {
+  var w = currentWeek();
+  var label = prompt("Rename this week:", w.label);
+  if (label === null) return;
+  if (label.trim()) { w.label = label.trim(); saveState(); renderAll(); }
+});
+document.getElementById("deleteWeek").addEventListener("click", function () {
+  var w = currentWeek();
+  if (isTemplate(w)) { alert("The Regular week is the template — it can't be deleted."); return; }
+  if (!confirm('Delete "' + w.label + '" (its schedule tweaks and tasks)?')) return;
+  for (var i = 0; i < STATE.weeks.length; i++) if (STATE.weeks[i].id === w.id) { STATE.weeks.splice(i, 1); break; }
+  STATE.current = STATE.weeks[0].id;
+  evForm = null;
+  saveState(); renderAll();
+});
+document.getElementById("editBtn").addEventListener("click", function () {
+  editorOpen = !editorOpen;
+  document.getElementById("editor").style.display = editorOpen ? "" : "none";
+  this.textContent = editorOpen ? "Close editor" : "Edit schedule";
+  if (editorOpen) renderEditor();
+});
+document.getElementById("print").addEventListener("click", function () { window.print(); });
+
+(async function init() {
+  setSync("Loading…");
+  var loaded = null;
+  try { loaded = await loadState(); } catch (e) { loaded = null; }
+  if (loaded && loaded.weeks && loaded.weeks.length) {
+    STATE = loaded;
+    for (var wi = 0; wi < STATE.weeks.length; wi++) {
+      if (!STATE.weeks[wi].ctasks) STATE.weeks[wi].ctasks = [];
+      for (var ci = 0; ci < STATE.weeks[wi].ctasks.length; ci++) {
+        if (STATE.weeks[wi].ctasks[ci].status === "na") STATE.weeks[wi].ctasks[ci].status = "ns";
+      }
+    }
+    if (STATE.classTasks && STATE.classTasks.length) {
+      // migrate from the earlier layout: attach each class task to that class's first box in the template
+      var tmpl = STATE.weeks[0];
+      for (var ti = 0; ti < STATE.classTasks.length; ti++) {
+        var ct = STATE.classTasks[ti], target = null;
+        for (var di = 0; di < DAYS7.length && !target; di++) {
+          var evs2 = eventsOn(tmpl, DAYS7[di]);
+          for (var ei = 0; ei < evs2.length; ei++) {
+            if (evs2[ei].kind !== "break" && evs2[ei].t === ct.cls) { target = evs2[ei]; break; }
+          }
+        }
+        if (target) tmpl.ctasks.push({ id: ct.id, evId: target.id, name: ct.name, due: ct.due, status: ct.status });
+      }
+      delete STATE.classTasks;
+      saveState();
+    }
+  }
+  else STATE = freshState();
+  setSync(hasCloud ? "Synced across devices" : "Saved on this device only");
+  renderAll();
+})();
+</script>
+</body>
+</html>
