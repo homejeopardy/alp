@@ -182,7 +182,10 @@
     </div>
     <div class="ctl">
       <label>&nbsp;</label>
-      <button id="editBtn" type="button">Edit schedule</button>
+      <div style="display:flex;gap:6px;">
+        <button id="editBtn" type="button">Edit schedule</button>
+        <button id="syncBtn" type="button">Sync</button>
+      </div>
     </div>
     <div class="spacer"></div>
     <span class="sync" id="sync"></span>
@@ -190,6 +193,8 @@
   </div>
 
   <div class="editor" id="editor" style="display:none;"></div>
+
+  <div class="editor" id="syncPanel" style="display:none;"></div>
 
   <div class="title-line" id="titleLine"></div>
 
@@ -268,6 +273,7 @@ function colorStyle(t) {
 /* ================= storage (syncs across devices when run inside Claude) ================= */
 
 var STORE_KEY = "amelie-planner-v1";
+var GH_KEY = "amelie-planner-gh";
 var hasCloud = typeof window.storage !== "undefined" && window.storage && window.storage.get;
 
 function setSync(msg, err) {
@@ -276,13 +282,63 @@ function setSync(msg, err) {
   el.className = "sync" + (err ? " err" : "");
 }
 
+/* ---------- GitHub sync (for hosting the planner on GitHub Pages) ----------
+   Data is stored as one JSON file in a repo (ideally a separate PRIVATE repo)
+   via the GitHub contents API, which allows cross-origin requests.            */
+
+var GH = null;     // {owner, repo, path, token}
+var ghSha = null;  // sha of the last-seen data file version
+try { GH = JSON.parse(localStorage.getItem(GH_KEY) || "null"); } catch (eg) { GH = null; }
+
+function ghUrl() {
+  return "https://api.github.com/repos/" + encodeURIComponent(GH.owner) + "/" + encodeURIComponent(GH.repo)
+       + "/contents/" + GH.path.split("/").map(encodeURIComponent).join("/");
+}
+function ghHeaders() {
+  return { "Authorization": "Bearer " + GH.token,
+           "Accept": "application/vnd.github+json",
+           "X-GitHub-Api-Version": "2022-11-28" };
+}
+function b64enc(s) { return btoa(unescape(encodeURIComponent(s))); }
+function b64dec(s) { return decodeURIComponent(escape(atob(s.replace(/\n/g, "")))); }
+
+async function ghLoad() {
+  var res = await fetch(ghUrl(), { headers: ghHeaders() });
+  if (res.status === 404) { ghSha = null; return null; } // file doesn't exist yet
+  if (!res.ok) throw "GitHub said " + res.status + (res.status === 401 ? " - check the token" : "");
+  var j = await res.json();
+  ghSha = j.sha;
+  return JSON.parse(b64dec(j.content));
+}
+async function ghPush() {
+  var body = { message: "planner update", content: b64enc(JSON.stringify(STATE)) };
+  if (ghSha) body.sha = ghSha;
+  var res = await fetch(ghUrl(), { method: "PUT", headers: ghHeaders(), body: JSON.stringify(body) });
+  if (res.status === 409 || res.status === 422) {
+    // another device pushed since we loaded: take the new sha, keep our data (last write wins)
+    var cur = await fetch(ghUrl(), { headers: ghHeaders() });
+    if (cur.ok) { ghSha = (await cur.json()).sha; }
+    else if (cur.status === 404) { ghSha = null; }
+    if (ghSha) body.sha = ghSha; else delete body.sha;
+    res = await fetch(ghUrl(), { method: "PUT", headers: ghHeaders(), body: JSON.stringify(body) });
+  }
+  if (!res.ok) throw "GitHub said " + res.status + (res.status === 401 ? " - check the token" : "");
+  var j2 = await res.json();
+  ghSha = j2.content.sha;
+}
+
 async function loadState() {
   if (hasCloud) {
     try {
       var res = await window.storage.get(STORE_KEY);
       if (res && res.value) return JSON.parse(res.value);
-    } catch (e) { /* key missing on first run — fine */ }
+    } catch (e) { /* key missing on first run - fine */ }
     return null;
+  }
+  if (GH) {
+    var remote = await ghLoad(); // throws on auth/network problems - caught by init
+    if (remote) return remote;
+    // no remote file yet: use whatever this device has, then the first save pushes it up
   }
   try {
     var raw = localStorage.getItem(STORE_KEY);
@@ -292,18 +348,26 @@ async function loadState() {
 
 var saveTimer = null;
 function saveState() {
+  // always keep a local copy immediately (instant + offline safety)
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(STATE)); } catch (eL) {}
   clearTimeout(saveTimer);
   saveTimer = setTimeout(function () {
     if (hasCloud) {
-      setSync("Saving…");
+      setSync("Saving\u2026");
       window.storage.set(STORE_KEY, JSON.stringify(STATE))
-        .then(function (r) { setSync(r ? "Saved — syncs across devices" : "Couldn't save", !r); })
-        .catch(function () { setSync("Couldn't save — changes are local only", true); });
+        .then(function (r) { setSync(r ? "Saved \u2014 syncs across devices" : "Couldn't save", !r); })
+        .catch(function () { setSync("Couldn't save \u2014 changes are local only", true); });
+    } else if (GH && !ghBroken) {
+      setSync("Saving to GitHub\u2026");
+      ghPush()
+        .then(function () { setSync("Synced via GitHub"); })
+        .catch(function (err) { setSync("Sync failed (" + err + ") \u2014 saved on this device", true); });
+    } else if (GH && ghBroken) {
+      setSync("GitHub unreachable \u2014 saved on this device; reload to retry", true);
     } else {
-      try { localStorage.setItem(STORE_KEY, JSON.stringify(STATE)); setSync("Saved on this device only"); }
-      catch (e) { setSync("Couldn't save", true); }
+      setSync("Saved on this device only");
     }
-  }, 400);
+  }, 1200);
 }
 
 /* ================= state ================= */
@@ -777,10 +841,103 @@ document.getElementById("editBtn").addEventListener("click", function () {
 });
 document.getElementById("print").addEventListener("click", function () { window.print(); });
 
+/* ---------- sync setup panel ---------- */
+
+var syncOpen = false;
+var ghBroken = false; // don't push if the last load from GitHub failed — avoids clobbering good remote data
+
+function renderSyncPanel() {
+  var d = GH || { owner: "homejeopardy", repo: "alp-data", path: "planner.json", token: "" };
+  var h = "<h3>Sync across devices (GitHub)</h3>";
+  if (hasCloud) {
+    h += '<div class="muted">You\u2019re running inside Claude, which already syncs — no setup needed here.</div>';
+  }
+  h += '<div class="muted" style="margin-bottom:8px;">'
+     + 'The planner saves its data as one small file in a GitHub repo. Do this once:<br>'
+     + '1. On github.com, create a new <b>private</b> repository, e.g. <b>alp-data</b> (private keeps the tasks out of public view — don\u2019t reuse the public website repo).<br>'
+     + '2. Make a token: github.com \u2192 Settings \u2192 Developer settings \u2192 <b>Fine-grained personal access tokens</b> \u2192 Generate new token. '
+     + 'Under \u201cRepository access\u201d pick <b>Only select repositories</b> \u2192 alp-data. Under Permissions \u2192 Repository \u2192 set <b>Contents</b> to <b>Read and write</b>. Pick a long expiration. Copy the token.<br>'
+     + '3. Paste it below and Connect. Repeat step 3 on each device (phone, laptop) — same token.</div>';
+  h += '<div class="edrow">'
+     + '<input type="text" id="ghOwner" placeholder="GitHub username" value="' + esc(d.owner) + '" style="width:160px;">'
+     + '<input type="text" id="ghRepo" placeholder="Repo (e.g. alp-data)" value="' + esc(d.repo) + '" style="width:150px;">'
+     + '<input type="text" id="ghPath" placeholder="File (planner.json)" value="' + esc(d.path) + '" style="width:150px;">'
+     + "</div>"
+     + '<div class="edrow">'
+     + '<input type="text" id="ghToken" placeholder="Paste token (github_pat_\u2026)" value="' + esc(d.token) + '" style="flex:1;min-width:240px;">'
+     + '<button id="ghConnect" class="primary" type="button">Connect</button>'
+     + (GH ? '<button id="ghDisconnect" type="button">Disconnect</button>' : "")
+     + "</div>"
+     + '<div class="muted">The token is kept only in this browser. Changes made at the same moment on two devices: last save wins. Reload the page to pull the latest from other devices.</div>';
+  var box = document.getElementById("syncPanel");
+  box.innerHTML = h;
+
+  document.getElementById("ghConnect").addEventListener("click", async function () {
+    var cfg = {
+      owner: document.getElementById("ghOwner").value.trim(),
+      repo: document.getElementById("ghRepo").value.trim(),
+      path: document.getElementById("ghPath").value.trim() || "planner.json",
+      token: document.getElementById("ghToken").value.trim()
+    };
+    if (!cfg.owner || !cfg.repo || !cfg.token) { alert("Fill in username, repo, and token."); return; }
+    var prev = GH;
+    GH = cfg;
+    setSync("Connecting\u2026");
+    try {
+      var remote = await ghLoad(); // also verifies the token + repo
+      ghBroken = false;
+      if (remote && remote.weeks && remote.weeks.length) {
+        var localStr = JSON.stringify(STATE), remoteStr = JSON.stringify(remote);
+        var useRemote = true;
+        if (localStr !== remoteStr) {
+          useRemote = confirm("This repo already has planner data.\n\nOK = use the GitHub copy (recommended)\nCancel = overwrite it with this device's copy");
+        }
+        if (useRemote) { STATE = remote; }
+        else { await ghPush(); }
+      } else {
+        await ghPush(); // first device: seed the repo with this device's data
+      }
+      try { localStorage.setItem(GH_KEY, JSON.stringify(GH)); } catch (eS) {}
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(STATE)); } catch (eS2) {}
+      setSync("Synced via GitHub");
+      syncOpen = false;
+      document.getElementById("syncPanel").style.display = "none";
+      evForm = null;
+      renderAll();
+    } catch (err) {
+      GH = prev;
+      setSync("Couldn't connect", true);
+      alert("Couldn't connect:\n\n" + err + "\n\nCheck the username/repo spelling and that the token has Contents: Read and write on that repo.");
+    }
+  });
+  var disc = document.getElementById("ghDisconnect");
+  if (disc) disc.addEventListener("click", function () {
+    GH = null; ghSha = null;
+    try { localStorage.removeItem(GH_KEY); } catch (eD) {}
+    setSync("Saved on this device only");
+    renderSyncPanel();
+  });
+}
+
+document.getElementById("syncBtn").addEventListener("click", function () {
+  syncOpen = !syncOpen;
+  document.getElementById("syncPanel").style.display = syncOpen ? "" : "none";
+  if (syncOpen) renderSyncPanel();
+});
+
 (async function init() {
   setSync("Loading…");
-  var loaded = null;
-  try { loaded = await loadState(); } catch (e) { loaded = null; }
+  var loaded = null, loadErr = null;
+  try { loaded = await loadState(); }
+  catch (e) {
+    // GitHub configured but unreachable/rejected: use the local copy and DON'T push over the remote
+    loadErr = e;
+    ghBroken = true;
+    try {
+      var rawF = localStorage.getItem(STORE_KEY);
+      loaded = rawF ? JSON.parse(rawF) : null;
+    } catch (e3) { loaded = null; }
+  }
   if (loaded && loaded.weeks && loaded.weeks.length) {
     STATE = loaded;
     for (var wi = 0; wi < STATE.weeks.length; wi++) {
@@ -807,7 +964,10 @@ document.getElementById("print").addEventListener("click", function () { window.
     }
   }
   else STATE = freshState();
-  setSync(hasCloud ? "Synced across devices" : "Saved on this device only");
+  if (loadErr) setSync("Couldn't reach GitHub (" + loadErr + ") — using this device's copy", true);
+  else if (hasCloud) setSync("Synced across devices");
+  else if (GH) setSync("Synced via GitHub");
+  else setSync("Saved on this device only");
   renderAll();
 })();
 </script>
